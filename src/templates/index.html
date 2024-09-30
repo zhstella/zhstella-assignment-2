@@ -1,0 +1,531 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KMeans Clustering</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        #plot {
+            border: 1px solid black;
+        }
+
+        .controls {
+            margin: 20px;
+        }
+
+        select, input, button {
+            padding: 10px;
+            margin: 10px;
+        }
+
+        #status-message {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body onload="generateAndDrawData()">
+    <h1>KMeans Clustering Demo</h1>
+
+    <div class="controls">
+        <label for="init-method">Initialization Method:</label>
+        <select id="init-method">
+            <option value="random">Random</option>
+            <option value="farthest_first">Farthest First</option>
+            <option value="kmeans++">KMeans++</option>
+            <option value="manual">Manual</option>
+        </select>
+
+        <label for="num-clusters">Number of Clusters:</label>
+        <input type="number" id="num-clusters" min="2" max="10" value="3">
+
+        <button onclick="initialize()">Initialize</button>
+        <button onclick="step()" id="step-button">Step</button>
+        <button onclick="runToEnd()" id="run-to-end-button">Run to End</button>
+        <button onclick="reset()">Reset</button>
+    </div>
+
+    <canvas id="plot" width="500" height="500"></canvas>
+
+    <div id="status-message"></div>
+
+    <script>
+        let currentData = null; // 存储数据点
+        let currentCentroids = null; // 存储质心
+        let currentClusters = null; // 存储簇分配信息
+
+        // 页面加载时自动生成并绘制数据点
+        async function generateAndDrawData() {
+            const response = await fetch("/generate-data", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                }
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentData = data.data;  // 存储生成的随机数据点
+                drawClusters(currentData, [], null);  // 绘制数据点，暂时不绘制质心
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // 初始化KMeans，只生成质心
+        async function initialize() {
+            const method = document.getElementById("init-method").value;
+            const numClusters = parseInt(document.getElementById("num-clusters").value);
+
+            const response = await fetch("/initialize", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ method, numClusters })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentCentroids = data.centroids;  // 存储生成的质心
+                drawClusters(currentData, currentCentroids, null);  // 显示现有数据和生成的质心
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // Step: 执行一步 KMeans 算法
+        async function step() {
+            const response = await fetch("/step", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentClusters = data.clusters;  // 更新簇分配
+                currentCentroids = data.centroids;  // 更新质心位置
+                drawClusters(currentData, currentCentroids, currentClusters);  // 显示更新后的数据点和质心
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // Run to End: 运行到 KMeans 收敛
+        async function runToEnd() {
+            const response = await fetch("/run-to-end", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentClusters = data.clusters;  // 最终簇分配
+                currentCentroids = data.centroids;  // 最终质心
+                drawClusters(currentData, currentCentroids, currentClusters);  // 显示最终结果
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // 绘制数据点和质心
+        function drawClusters(dataPoints, centroids, clusters) {
+            const canvas = document.getElementById("plot");
+            const ctx = canvas.getContext("2d");
+
+            clearCanvas(canvas, ctx);  // 清除之前的绘图
+
+            // 定义簇的颜色（多种颜色表示不同簇）
+            const colors = [
+                'rgba(255, 0, 0, 0.5)',    // Red
+                'rgba(0, 255, 0, 0.5)',    // Green
+                'rgba(0, 0, 255, 0.5)',    // Blue
+                'rgba(255, 255, 0, 0.5)',  // Yellow
+                'rgba(255, 0, 255, 0.5)',  // Magenta
+                'rgba(0, 255, 255, 0.5)',  // Cyan
+                'rgba(128, 0, 0, 0.5)',    // Maroon
+                'rgba(0, 128, 0, 0.5)',    // Dark Green
+                'rgba(0, 0, 128, 0.5)',    // Navy
+                'rgba(128, 128, 0, 0.5)'   // Olive
+            ];
+
+            // 先绘制数据点
+            dataPoints.forEach((point, index) => {
+                const [x, y] = mapToCanvas(point[0], point[1], canvas);
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, 2 * Math.PI, false);
+                // 根据簇的分配使用不同颜色
+                if (clusters) {
+                    ctx.fillStyle = colors[clusters[index] % colors.length];  // 每个簇使用不同的颜色
+                } else {
+                    ctx.fillStyle = 'rgba(0, 0, 255, 0.5)';  // 默认蓝色
+                }
+                ctx.fill();
+                ctx.closePath();
+            });
+
+            // 再绘制质心
+            centroids.forEach((centroid) => {
+                const [x, y] = mapToCanvas(centroid[0], centroid[1], canvas);
+                ctx.beginPath();
+                ctx.arc(x, y, 10, 0, 2 * Math.PI, false);  // 使用较大圆点表示质心
+                ctx.fillStyle = 'rgba(0, 0, 0, 1)';  // 黑色质心
+                ctx.fill();
+                ctx.closePath();
+            });
+        }
+
+        // 将数据点映射到画布上的坐标
+        function mapToCanvas(x, y, canvas) {
+            const canvasX = x * canvas.width;
+            const canvasY = y * canvas.height;
+            return [canvasX, canvasY];
+        }
+
+        // 清空画布
+        function clearCanvas(canvas, ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // 重置：恢复到页面加载时的状态，重新生成数据点
+        function reset() {
+            currentData = null;
+            currentCentroids = null;
+            currentClusters = null;
+            generateAndDrawData();  // 重新生成200个点，并显示在画布上
+        }
+    </script>
+</body>
+</html> -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KMeans Clustering</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        #plot {
+            border: 1px solid black;
+        }
+
+        .controls {
+            margin: 20px;
+        }
+
+        select, input, button {
+            padding: 10px;
+            margin: 10px;
+        }
+
+        #status-message {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body onload="generateAndDrawData()">
+    <h1>KMeans Clustering Demo</h1>
+
+    <div class="controls">
+        <label for="init-method">Initialization Method:</label>
+        <select id="init-method" onchange="handleMethodChange()" id="init-method">
+            <option value="random">Random</option>
+            <option value="farthest_first">Farthest First</option>
+            <option value="kmeans++">KMeans++</option>
+            <option value="manual">Manual</option>
+        </select>
+
+        <label for="num-clusters">Number of Clusters:</label>
+        <input type="number" id="num-clusters" min="2" max="10" value="3">
+
+        <button onclick="initialize()" id="initialize-button">Initialize</button>
+        <button onclick="step()" id="step-button" disabled>Step</button>
+        <button onclick="runToEnd()" id="run-to-end-button" disabled>Run to End</button>
+        <button onclick="reset()">Reset</button>
+    </div>
+
+    <canvas id="plot" width="500" height="500" onclick="selectCentroid(event)"></canvas>
+
+    <div id="status-message"></div>
+
+    <script>
+        let currentData = null; // 存储数据点
+        let currentCentroids = []; // 存储质心
+        let currentClusters = null; // 存储簇分配信息
+        let manualCentroids = [];  // 手动选择的质心点
+        let selectingCentroids = false;  // 标记是否处于手动选择模式
+        let numClusters = 3; // 默认簇数量
+
+        // 页面加载时自动生成并绘制数据点
+        async function generateAndDrawData() {
+            const response = await fetch("/generate-data", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                }
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentData = data.data;  // 存储生成的随机数据点
+                drawClusters(currentData, [], null);  // 绘制数据点，暂时不绘制质心
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // 当用户选择手动方式时，立即启动质心选择
+        function handleMethodChange() {
+            const method = document.getElementById("init-method").value;
+            numClusters = parseInt(document.getElementById("num-clusters").value);
+
+            if (method === "manual") {
+                enableManualCentroidSelection();  // 启动手动质心选择模式
+                document.getElementById("initialize-button").disabled = true;  // 禁用初始化按钮
+            } else {
+                document.getElementById("initialize-button").disabled = false;  // 启用初始化按钮
+            }
+        }
+
+        // 启动质心选择模式
+        function enableManualCentroidSelection() {
+            manualCentroids = [];
+            selectingCentroids = true;
+            document.getElementById("status-message").innerHTML = `Please click ${numClusters} points on the canvas to select initial centroids.`;
+            // 禁用其他按钮，直到质心选择完成
+            document.getElementById("step-button").disabled = true;
+            document.getElementById("run-to-end-button").disabled = true;
+        }
+
+        // 画布点击事件：用于选择质心
+        function selectCentroid(event) {
+            if (!selectingCentroids) return;
+
+            const canvas = document.getElementById("plot");
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+
+            // 将点击位置映射到 0-1 范围的数据点
+            const canvasX = x / canvas.width;
+            const canvasY = y / canvas.height;
+
+            manualCentroids.push([canvasX, canvasY]);
+            drawCentroid(x, y);  // 绘制点击的质心
+
+            if (manualCentroids.length === numClusters) {
+                selectingCentroids = false;
+                document.getElementById("status-message").innerHTML = "Centroids selected! Initializing KMeans...";
+
+                // 恢复其他按钮功能
+                document.getElementById("step-button").disabled = false;
+                document.getElementById("run-to-end-button").disabled = false;
+
+                // 发送手动选择的质心到后端进行初始化
+                initializeWithManualCentroids();
+            }
+        }
+
+        // 绘制质心在画布上
+        function drawCentroid(x, y) {
+            const canvas = document.getElementById("plot");
+            const ctx = canvas.getContext("2d");
+            ctx.beginPath();
+            ctx.arc(x, y, 10, 0, 2 * Math.PI, false);
+            ctx.fillStyle = 'rgba(255, 0, 0, 1)';  // 红色质心
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        // 使用手动质心初始化KMeans
+        async function initializeWithManualCentroids() {
+            const response = await fetch("/initialize-manual", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    centroids: manualCentroids,
+                    numClusters
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentCentroids = data.centroids;
+                drawClusters(currentData, currentCentroids, null);  // 显示初始化数据
+                document.getElementById("status-message").innerHTML = "KMeans Initialized with Manual Centroids!";
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // 初始化KMeans：根据选择的方式进行初始化
+        async function initialize() {
+            const method = document.getElementById("init-method").value;
+            numClusters = parseInt(document.getElementById("num-clusters").value);
+
+            // 非手动方式时，常规初始化逻辑
+            const response = await fetch("/initialize", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ method, numClusters })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentCentroids = data.centroids;  // 存储生成的质心
+                drawClusters(currentData, currentCentroids, null);  // 显示现有数据和生成的质心
+                document.getElementById("step-button").disabled = false;  // 启用step按钮
+                document.getElementById("run-to-end-button").disabled = false;  // 启用run to end按钮
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // Step: 执行一步 KMeans 算法
+        async function step() {
+            const response = await fetch("/step", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentClusters = data.clusters;  // 更新簇分配
+                currentCentroids = data.centroids;  // 更新质心位置
+                drawClusters(currentData, currentCentroids, currentClusters);  // 显示更新后的数据点和质心
+
+                if (data.converged) {
+                    setTimeout(() => {
+                        alert("The clustering has converged!");
+                        document.getElementById("step-button").disabled = true;
+                        document.getElementById("run-to-end-button").disabled = true;
+                    }, 500); 
+        }
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // Run to End: 运行到 KMeans 收敛
+        async function runToEnd() {
+            const response = await fetch("/run-to-end", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                currentClusters = data.clusters;  // 最终簇分配
+                currentCentroids = data.centroids;  // 最终质心
+                drawClusters(currentData, currentCentroids, currentClusters);  // 显示最终结果
+
+                if (data.converged) { 
+                    setTimeout(() => {
+                        alert("The clustering has converged!");
+                        document.getElementById("step-button").disabled = true;
+                        document.getElementById("run-to-end-button").disabled = true;
+                    }, 500); // 等待0.5秒后显示收敛消息
+                }
+            } else {
+                console.error("Error:", data.error);
+            }
+        }
+
+        // 绘制数据点和质心
+        function drawClusters(dataPoints, centroids, clusters) {
+            const canvas = document.getElementById("plot");
+            const ctx = canvas.getContext("2d");
+
+            clearCanvas(canvas, ctx);  // 清除之前的绘图
+
+            // 定义簇的颜色（多种颜色表示不同簇）
+            const colors = [
+                'rgba(255, 0, 0, 0.5)',    // Red
+                'rgba(0, 255, 0, 0.5)',    // Green
+                'rgba(0, 0, 255, 0.5)',    // Blue
+                'rgba(255, 255, 0, 0.5)',  // Yellow
+                'rgba(255, 0, 255, 0.5)',  // Magenta
+                'rgba(0, 255, 255, 0.5)',  // Cyan
+                'rgba(128, 0, 0, 0.5)',    // Maroon
+                'rgba(0, 128, 0, 0.5)',    // Dark Green
+                'rgba(0, 0, 128, 0.5)',    // Navy
+                'rgba(128, 128, 0, 0.5)'   // Olive
+            ];
+
+            // 先绘制数据点
+            dataPoints.forEach((point, index) => {
+                const [x, y] = mapToCanvas(point[0], point[1], canvas);
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, 2 * Math.PI, false);
+                // 根据簇的分配使用不同颜色
+                if (clusters) {
+                    ctx.fillStyle = colors[clusters[index] % colors.length];  // 每个簇使用不同的颜色
+                } else {
+                    ctx.fillStyle = 'rgba(0, 0, 255, 0.5)';  // 默认蓝色
+                }
+                ctx.fill();
+                ctx.closePath();
+            });
+
+            // 再绘制质心
+            centroids.forEach((centroid) => {
+                const [x, y] = mapToCanvas(centroid[0], centroid[1], canvas);
+                ctx.beginPath();
+                ctx.arc(x, y, 10, 0, 2 * Math.PI, false);  // 使用较大圆点表示质心
+                ctx.fillStyle = 'rgba(0, 0, 0, 1)';  // 黑色质心
+                ctx.fill();
+                ctx.closePath();
+            });
+        }
+
+        // 将数据点映射到画布上的坐标
+        function mapToCanvas(x, y, canvas) {
+            const canvasX = x * canvas.width;
+            const canvasY = y * canvas.height;
+            return [canvasX, canvasY];
+        }
+
+        // 清空画布
+        function clearCanvas(canvas, ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // 重置：恢复到页面加载时的状态，重新生成数据点
+        // 重置：恢复到页面加载时的状态，重新生成数据点并将选项恢复到默认值
+        function reset() {
+            currentData = null;
+            currentCentroids = null;
+            currentClusters = null;
+            manualCentroids = [];
+
+            // 恢复表单的默认值
+            document.getElementById("init-method").value = "random";  // 恢复初始化方法为 random
+            document.getElementById("num-clusters").value = 3;  // 恢复聚类数量为 3
+
+            // 重新生成200个点，并显示在画布上
+            generateAndDrawData();
+
+            // 清除状态消息
+            document.getElementById("status-message").innerHTML = "";  
+
+            // 禁用 step 和 run to end 按钮
+            document.getElementById("step-button").disabled = true;
+            document.getElementById("run-to-end-button").disabled = true;
+
+            // 启用初始化按钮
+            document.getElementById("initialize-button").disabled = false;
+        }
+    </script>
+</body>
+</html>
